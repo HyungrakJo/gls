@@ -2,7 +2,6 @@
 package gls
 
 import (
-	"errors"
 	"sync"
 )
 
@@ -10,17 +9,6 @@ const (
 	initialMaxGoroutineCount = 1024
 	extendUnit               = 128
 )
-
-var (
-	NotEnabled = errors.New("gls not enabled for this goroutine")
-)
-
-type context map[interface{}]interface{}
-
-var curMaxGoroutineCount = initialMaxGoroutineCount
-
-var extendLock *sync.RWMutex
-var globalMaps []context
 
 var (
 	mgrRegistry    = make(map[*ContextManager]bool)
@@ -37,15 +25,17 @@ type Values map[interface{}]interface{}
 // class of context variables. You should use NewContextManager for
 // construction.
 type ContextManager struct {
-	mtx    sync.Mutex
-	values map[uint32]Values
+	extendLock               sync.RWMutex
+	values                   []Values
+	currentMaxGoroutineCount int
 }
 
 // NewContextManager returns a brand new ContextManager. It also registers the
 // new ContextManager in the ContextManager registry which is used by the Go
 // method. ContextManagers are typically defined globally at package scope.
 func NewContextManager() *ContextManager {
-	mgr := &ContextManager{values: make(map[uint32]Values)}
+	mgr := &ContextManager{values: make([]Values, initialMaxGoroutineCount)}
+	mgr.currentMaxGoroutineCount = len(mgr.values)
 	mgrRegistryMtx.Lock()
 	defer mgrRegistryMtx.Unlock()
 	mgrRegistry[mgr] = true
@@ -78,13 +68,16 @@ func (m *ContextManager) SetValues(new_values Values, context_call func()) {
 	mutated_vals := make(Values, len(new_values))
 
 	EnsureGoroutineId(func(gid uint32) {
-		m.mtx.Lock()
-		state, found := m.values[gid]
-		if !found {
+		var found bool
+		m.extendIfNeeded(gid)
+
+		state := m.values[gid]
+		if state != nil {
+			found = true
+		} else {
 			state = make(Values, len(new_values))
 			m.values[gid] = state
 		}
-		m.mtx.Unlock()
 
 		for key, new_val := range new_values {
 			mutated_keys = append(mutated_keys, key)
@@ -96,9 +89,7 @@ func (m *ContextManager) SetValues(new_values Values, context_call func()) {
 
 		defer func() {
 			if !found {
-				m.mtx.Lock()
-				delete(m.values, gid)
-				m.mtx.Unlock()
+				m.values[gid] = nil
 				return
 			}
 
@@ -125,11 +116,9 @@ func (m *ContextManager) GetValue(key interface{}) (
 		return nil, false
 	}
 
-	m.mtx.Lock()
-	state, found := m.values[gid]
-	m.mtx.Unlock()
+	state := m.values[gid]
 
-	if !found {
+	if state == nil {
 		return nil, false
 	}
 	value, ok = state[key]
@@ -141,9 +130,7 @@ func (m *ContextManager) getValues() Values {
 	if !ok {
 		return nil
 	}
-	m.mtx.Lock()
-	state, _ := m.values[gid]
-	m.mtx.Unlock()
+	state := m.values[gid]
 	return state
 }
 
@@ -169,59 +156,22 @@ func Go(cb func()) {
 	go cb()
 }
 
-func init() {
-	extendLock = &sync.RWMutex{}
-	globalMaps = make([]context, initialMaxGoroutineCount, initialMaxGoroutineCount)
-}
-
-func extend(goID uint32) {
-	extendLock.Lock()
-	defer extendLock.Unlock()
-	if goID >= uint32(curMaxGoroutineCount) {
-		unit := ((goID-uint32(curMaxGoroutineCount))/extendUnit + 1) * extendUnit
-		globalMaps = append(globalMaps, make([]context, unit, unit)...)
-		curMaxGoroutineCount += int(unit)
+func (m *ContextManager) extend(gid uint32) {
+	m.extendLock.Lock()
+	defer m.extendLock.Unlock()
+	if gid >= uint32(m.currentMaxGoroutineCount) {
+		unit := ((gid-uint32(m.currentMaxGoroutineCount))/extendUnit + 1) * extendUnit
+		m.values = append(m.values, make([]Values, unit)...)
+		m.currentMaxGoroutineCount += int(unit)
 	}
 }
 
-func getGLS() (context, error) {
-	goID, ok := GetGoroutineId()
-	if !ok {
-		return nil, NotEnabled
+func (m *ContextManager) extendIfNeeded(gid uint32) {
+	m.extendLock.RLock()
+	if gid >= uint32(m.currentMaxGoroutineCount) {
+		m.extendLock.RUnlock()
+		m.extend(gid)
+	} else {
+		m.extendLock.RUnlock()
 	}
-	return globalMaps[goID], nil
-}
-
-// WrapWithGLS Get, Set 은 f 안에서만 수행될 수 있다. goroutine id 발급이 필요하고,
-// goroutine 종료 후 쓰레기 데이터가 남아 있을 수 있기 때문에 초기화 과정 필요.
-func WrapWithGLS(f func()) {
-	EnsureGoroutineId(func(goID uint32) {
-		extendLock.RLock()
-		if goID >= uint32(curMaxGoroutineCount) {
-			extendLock.RUnlock()
-			extend(goID)
-		} else {
-			extendLock.RUnlock()
-		}
-
-		globalMaps[goID] = context{}
-		f()
-	})
-}
-
-func Set(key string, value interface{}) error {
-	glsMap, err := getGLS()
-	if err != nil {
-		return err
-	}
-	glsMap[key] = value
-	return nil
-}
-
-func Get(key string) (interface{}, error) {
-	glsMap, err := getGLS()
-	if err != nil {
-		return nil, err
-	}
-	return glsMap[key], nil
 }

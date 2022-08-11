@@ -2,7 +2,7 @@ package gls
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
+	"github.com/jtolds/gls"
 	"sync"
 	"testing"
 )
@@ -123,65 +123,32 @@ func ExampleGo() {
 
 func BenchmarkGetValue(b *testing.B) {
 	mgr := NewContextManager()
+	wg := sync.WaitGroup{}
 	mgr.SetValues(Values{"test_key": "test_val"}, func() {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			val, ok := mgr.GetValue("test_key")
-			if !ok || val != "test_val" {
-				b.FailNow()
-			}
+			wg.Add(1)
+			gls.Go(func() {
+				defer wg.Done()
+				val, ok := mgr.GetValue("test_key")
+				if !ok || val != "test_val" {
+					b.FailNow()
+				}
+			})
 		}
+		wg.Wait()
 	})
 }
 
 func BenchmarkSetValues(b *testing.B) {
 	mgr := NewContextManager()
+	wg := sync.WaitGroup{}
 	for i := 0; i < b.N/2; i++ {
-		mgr.SetValues(Values{"test_key": "test_val"}, func() {
-			mgr.SetValues(Values{"test_key2": "test_val2"}, func() {})
-		})
-	}
-}
-
-func TestNoWrapGLS(t *testing.T) {
-	k := "key"
-	v1 := "value"
-	err := Set(k, v1)
-	assert.ErrorIs(t, err, NotEnabled)
-	v, err := Get(k)
-	assert.ErrorIs(t, err, NotEnabled)
-	assert.Nil(t, v)
-}
-
-func TestGet(t *testing.T) {
-	WrapWithGLS(func() {
-		k := "key"
-		v1 := "value"
-		err := Set(k, v1)
-		assert.NoError(t, err)
-		v2, err := Get(k)
-		assert.NoError(t, err)
-		v2Str, ok := v2.(string)
-		assert.True(t, ok)
-		assert.Equal(t, v1, v2Str)
-	})
-}
-
-func TestGLS(t *testing.T) {
-	wg := &sync.WaitGroup{}
-	key := "my_id"
-	nofGoroutines := 100
-	wg.Add(nofGoroutines)
-	for i := 0; i < nofGoroutines; i++ {
-		j := i
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			WrapWithGLS(func() {
-				err := Set(key, j)
-				assert.NoError(t, err)
-				v, err := Get(key)
-				assert.NoError(t, err)
-				assert.Equal(t, j, v)
+			mgr.SetValues(Values{"test_key": "test_val"}, func() {
+				mgr.SetValues(Values{"test_key2": "test_val2"}, func() {})
 			})
 		}()
 	}
@@ -189,11 +156,17 @@ func TestGLS(t *testing.T) {
 }
 
 func TestExtend(t *testing.T) {
-	assert.Len(t, globalMaps, initialMaxGoroutineCount)
-	extend(0)
-	assert.Len(t, globalMaps, initialMaxGoroutineCount)
-	extend(initialMaxGoroutineCount)
-	assert.Len(t, globalMaps, initialMaxGoroutineCount+extendUnit)
-	extend(initialMaxGoroutineCount + extendUnit*10)
-	assert.Len(t, globalMaps, initialMaxGoroutineCount+extendUnit*11)
+	lenCheck := func(values []Values, expected int) {
+		if len(values) != expected {
+			t.Fatalf("expected length %d for values length %d, got no value", expected, len(values))
+		}
+	}
+	mgr := NewContextManager()
+	lenCheck(mgr.values, initialMaxGoroutineCount)
+	mgr.extend(0)
+	lenCheck(mgr.values, initialMaxGoroutineCount)
+	mgr.extend(initialMaxGoroutineCount)
+	lenCheck(mgr.values, initialMaxGoroutineCount+extendUnit)
+	mgr.extend(initialMaxGoroutineCount + extendUnit*10)
+	lenCheck(mgr.values, initialMaxGoroutineCount+extendUnit*11)
 }
