@@ -69,13 +69,7 @@ func (m *ContextManager) SetValues(new_values Values, context_call func()) {
 
 	EnsureGoroutineId(func(gid uint32) {
 		var found bool
-		m.extendLock.RLock()
-		if gid >= uint32(m.currentMaxGoroutineCount) {
-			m.extendLock.RUnlock()
-			m.extend(gid)
-		} else {
-			m.extendLock.RUnlock()
-		}
+		m.extendIfNeeded(gid)
 
 		state := m.values[gid]
 		if state != nil {
@@ -162,12 +156,22 @@ func Go(cb func()) {
 	go cb()
 }
 
-func (m *ContextManager) extend(goID uint32) {
+func (m *ContextManager) extend(gid uint32) {
 	m.extendLock.Lock()
 	defer m.extendLock.Unlock()
-	if goID >= uint32(m.currentMaxGoroutineCount) {
-		unit := ((goID-uint32(m.currentMaxGoroutineCount))/extendUnit + 1) * extendUnit
+	if gid >= uint32(m.currentMaxGoroutineCount) {
+		unit := ((gid-uint32(m.currentMaxGoroutineCount))/extendUnit + 1) * extendUnit
 		m.values = append(m.values, make([]Values, unit)...)
 		m.currentMaxGoroutineCount += int(unit)
+	}
+}
+
+func (m *ContextManager) extendIfNeeded(gid uint32) {
+	m.extendLock.RLock()
+	if gid >= uint32(m.currentMaxGoroutineCount) {
+		m.extendLock.RUnlock()
+		m.extend(gid)
+	} else {
+		m.extendLock.RUnlock()
 	}
 }
