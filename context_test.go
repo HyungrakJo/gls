@@ -2,10 +2,9 @@ package gls_test
 
 import (
 	"fmt"
+	"github.com/HyungrakJo/gls"
 	"sync"
 	"testing"
-
-	"github.com/jtolds/gls"
 )
 
 func TestContexts(t *testing.T) {

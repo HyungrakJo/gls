@@ -21,14 +21,14 @@ type Values map[interface{}]interface{}
 // construction.
 type ContextManager struct {
 	mtx    sync.Mutex
-	values map[uint]Values
+	values map[uint32]Values
 }
 
 // NewContextManager returns a brand new ContextManager. It also registers the
 // new ContextManager in the ContextManager registry which is used by the Go
 // method. ContextManagers are typically defined globally at package scope.
 func NewContextManager() *ContextManager {
-	mgr := &ContextManager{values: make(map[uint]Values)}
+	mgr := &ContextManager{values: make(map[uint32]Values)}
 	mgrRegistryMtx.Lock()
 	defer mgrRegistryMtx.Unlock()
 	mgrRegistry[mgr] = true
@@ -60,7 +60,7 @@ func (m *ContextManager) SetValues(new_values Values, context_call func()) {
 	mutated_keys := make([]interface{}, 0, len(new_values))
 	mutated_vals := make(Values, len(new_values))
 
-	EnsureGoroutineId(func(gid uint) {
+	EnsureGoroutineId(func(gid uint32) {
 		m.mtx.Lock()
 		state, found := m.values[gid]
 		if !found {
