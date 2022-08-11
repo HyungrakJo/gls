@@ -2,8 +2,26 @@
 package gls
 
 import (
+	"errors"
 	"sync"
 )
+
+const (
+	initialMaxGoroutineCount = 1024
+	extendUnit               = 128
+)
+
+var (
+	NotEnabled     = errors.New("gls not enabled for this goroutine")
+	FailedTypeCast = errors.New("type cast fail")
+)
+
+type context map[interface{}]interface{}
+
+var curMaxGoroutineCount = initialMaxGoroutineCount
+
+var extendLock *sync.RWMutex
+var globalMaps []context
 
 var (
 	mgrRegistry    = make(map[*ContextManager]bool)
@@ -150,4 +168,61 @@ func Go(cb func()) {
 	}
 
 	go cb()
+}
+
+func init() {
+	extendLock = &sync.RWMutex{}
+	globalMaps = make([]context, initialMaxGoroutineCount, initialMaxGoroutineCount)
+}
+
+func extend(goID uint32) {
+	extendLock.Lock()
+	defer extendLock.Unlock()
+	if goID >= uint32(curMaxGoroutineCount) {
+		unit := ((goID-uint32(curMaxGoroutineCount))/extendUnit + 1) * extendUnit
+		globalMaps = append(globalMaps, make([]context, unit, unit)...)
+		curMaxGoroutineCount += int(unit)
+	}
+}
+
+func getGLS() (context, error) {
+	goID, ok := GetGoroutineId()
+	if !ok {
+		return nil, NotEnabled
+	}
+	return globalMaps[goID], nil
+}
+
+// WrapWithGLS Get, Set 은 f 안에서만 수행될 수 있다. goroutine id 발급이 필요하고,
+// goroutine 종료 후 쓰레기 데이터가 남아 있을 수 있기 때문에 초기화 과정 필요.
+func WrapWithGLS(f func()) {
+	EnsureGoroutineId(func(goID uint32) {
+		extendLock.RLock()
+		if goID >= uint32(curMaxGoroutineCount) {
+			extendLock.RUnlock()
+			extend(goID)
+		} else {
+			extendLock.RUnlock()
+		}
+
+		globalMaps[goID] = context{}
+		f()
+	})
+}
+
+func Set(key string, value interface{}) error {
+	glsMap, err := getGLS()
+	if err != nil {
+		return err
+	}
+	glsMap[key] = value
+	return nil
+}
+
+func Get(key string) (interface{}, error) {
+	glsMap, err := getGLS()
+	if err != nil {
+		return nil, err
+	}
+	return glsMap[key], nil
 }

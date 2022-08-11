@@ -1,17 +1,17 @@
-package gls_test
+package gls
 
 import (
 	"fmt"
-	"github.com/HyungrakJo/gls"
+	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
 )
 
 func TestContexts(t *testing.T) {
-	mgr1 := gls.NewContextManager()
-	mgr2 := gls.NewContextManager()
+	mgr1 := NewContextManager()
+	mgr2 := NewContextManager()
 
-	CheckVal := func(mgr *gls.ContextManager, key, exp_val string) {
+	CheckVal := func(mgr *ContextManager, key, exp_val string) {
 		val, ok := mgr.GetValue(key)
 		if len(exp_val) == 0 {
 			if ok {
@@ -38,11 +38,11 @@ func TestContexts(t *testing.T) {
 	}
 
 	Check("", "", "", "")
-	mgr2.SetValues(gls.Values{"key1": "val1c"}, func() {
+	mgr2.SetValues(Values{"key1": "val1c"}, func() {
 		Check("", "", "val1c", "")
-		mgr1.SetValues(gls.Values{"key1": "val1a"}, func() {
+		mgr1.SetValues(Values{"key1": "val1a"}, func() {
 			Check("val1a", "", "val1c", "")
-			mgr1.SetValues(gls.Values{"key2": "val1b"}, func() {
+			mgr1.SetValues(Values{"key2": "val1b"}, func() {
 				Check("val1a", "val1b", "val1c", "")
 				var wg sync.WaitGroup
 				wg.Add(2)
@@ -50,7 +50,7 @@ func TestContexts(t *testing.T) {
 					defer wg.Done()
 					Check("", "", "", "")
 				}()
-				gls.Go(func() {
+				Go(func() {
 					defer wg.Done()
 					Check("val1a", "val1b", "val1c", "")
 				})
@@ -66,8 +66,8 @@ func TestContexts(t *testing.T) {
 
 func ExampleContextManager_SetValues() {
 	var (
-		mgr            = gls.NewContextManager()
-		request_id_key = gls.GenSym()
+		mgr            = NewContextManager()
+		request_id_key = GenSym()
 	)
 
 	MyLog := func() {
@@ -78,7 +78,7 @@ func ExampleContextManager_SetValues() {
 		}
 	}
 
-	mgr.SetValues(gls.Values{request_id_key: "12345"}, func() {
+	mgr.SetValues(Values{request_id_key: "12345"}, func() {
 		MyLog()
 	})
 	MyLog()
@@ -89,8 +89,8 @@ func ExampleContextManager_SetValues() {
 
 func ExampleGo() {
 	var (
-		mgr            = gls.NewContextManager()
-		request_id_key = gls.GenSym()
+		mgr            = NewContextManager()
+		request_id_key = GenSym()
 	)
 
 	MyLog := func() {
@@ -101,7 +101,7 @@ func ExampleGo() {
 		}
 	}
 
-	mgr.SetValues(gls.Values{request_id_key: "12345"}, func() {
+	mgr.SetValues(Values{request_id_key: "12345"}, func() {
 		var wg sync.WaitGroup
 		wg.Add(1)
 		go func() {
@@ -110,7 +110,7 @@ func ExampleGo() {
 		}()
 		wg.Wait()
 		wg.Add(1)
-		gls.Go(func() {
+		Go(func() {
 			defer wg.Done()
 			MyLog()
 		})
@@ -122,8 +122,8 @@ func ExampleGo() {
 }
 
 func BenchmarkGetValue(b *testing.B) {
-	mgr := gls.NewContextManager()
-	mgr.SetValues(gls.Values{"test_key": "test_val"}, func() {
+	mgr := NewContextManager()
+	mgr.SetValues(Values{"test_key": "test_val"}, func() {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			val, ok := mgr.GetValue("test_key")
@@ -135,10 +135,65 @@ func BenchmarkGetValue(b *testing.B) {
 }
 
 func BenchmarkSetValues(b *testing.B) {
-	mgr := gls.NewContextManager()
+	mgr := NewContextManager()
 	for i := 0; i < b.N/2; i++ {
-		mgr.SetValues(gls.Values{"test_key": "test_val"}, func() {
-			mgr.SetValues(gls.Values{"test_key2": "test_val2"}, func() {})
+		mgr.SetValues(Values{"test_key": "test_val"}, func() {
+			mgr.SetValues(Values{"test_key2": "test_val2"}, func() {})
 		})
 	}
+}
+
+func TestNoWrapGLS(t *testing.T) {
+	k := "key"
+	v1 := "value"
+	err := Set(k, v1)
+	assert.ErrorIs(t, err, NotEnabled)
+	v, err := Get(k)
+	assert.ErrorIs(t, err, NotEnabled)
+	assert.Nil(t, v)
+}
+
+func TestGet(t *testing.T) {
+	WrapWithGLS(func() {
+		k := "key"
+		v1 := "value"
+		err := Set(k, v1)
+		assert.NoError(t, err)
+		v2, err := Get(k)
+		assert.NoError(t, err)
+		v2Str, ok := v2.(string)
+		assert.True(t, ok)
+		assert.Equal(t, v1, v2Str)
+	})
+}
+
+func TestGLS(t *testing.T) {
+	wg := &sync.WaitGroup{}
+	key := "my_id"
+	nofGoroutines := 100
+	wg.Add(nofGoroutines)
+	for i := 0; i < nofGoroutines; i++ {
+		j := i
+		go func() {
+			defer wg.Done()
+			WrapWithGLS(func() {
+				err := Set(key, j)
+				assert.NoError(t, err)
+				v, err := Get(key)
+				assert.NoError(t, err)
+				assert.Equal(t, j, v)
+			})
+		}()
+	}
+	wg.Wait()
+}
+
+func TestExtend(t *testing.T) {
+	assert.Len(t, globalMaps, initialMaxGoroutineCount)
+	extend(0)
+	assert.Len(t, globalMaps, initialMaxGoroutineCount)
+	extend(initialMaxGoroutineCount)
+	assert.Len(t, globalMaps, initialMaxGoroutineCount+extendUnit)
+	extend(initialMaxGoroutineCount + extendUnit*10)
+	assert.Len(t, globalMaps, initialMaxGoroutineCount+extendUnit*11)
 }
