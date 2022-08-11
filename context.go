@@ -12,8 +12,7 @@ const (
 )
 
 var (
-	NotEnabled     = errors.New("gls not enabled for this goroutine")
-	FailedTypeCast = errors.New("type cast fail")
+	NotEnabled = errors.New("gls not enabled for this goroutine")
 )
 
 type context map[interface{}]interface{}
