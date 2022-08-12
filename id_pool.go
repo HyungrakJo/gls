@@ -5,12 +5,13 @@ package gls
 // per-process possible
 
 import (
-	"sync"
 	"sync/atomic"
+
+	"golang.design/x/lockfree"
 )
 
 type idPool struct {
-	sync.Pool
+	queue *lockfree.Queue
 	curID uint32
 }
 
@@ -20,9 +21,13 @@ func (p *idPool) newID() uint32 {
 }
 
 func (p *idPool) Acquire() (id uint32) {
-	return p.Get().(uint32)
+	if item := p.queue.Dequeue(); item != nil {
+		return item.(uint32)
+	} else {
+		return p.newID()
+	}
 }
 
 func (p *idPool) Release(id uint32) {
-	p.Put(id)
+	p.queue.Enqueue(id)
 }
