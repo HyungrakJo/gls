@@ -48,7 +48,7 @@ func NewContextManager(option Option) *ContextManager {
 	}
 	mgr := &ContextManager{values: make([]Values, option.InitialMaxGoroutineCount)}
 	mgr.currentMaxGoroutineCount = len(mgr.values)
-	mgr.extendUnit = option.ExtendUnit
+	mgr.extendUnit = uint32(option.ExtendUnit)
 	mgrRegistryMtx.Lock()
 	defer mgrRegistryMtx.Unlock()
 	mgrRegistry[mgr] = true

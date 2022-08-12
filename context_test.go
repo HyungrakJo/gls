@@ -7,8 +7,8 @@ import (
 )
 
 func TestContexts(t *testing.T) {
-	mgr1 := NewContextManager()
-	mgr2 := NewContextManager()
+	mgr1 := NewContextManager(Option{})
+	mgr2 := NewContextManager(Option{})
 
 	CheckVal := func(mgr *ContextManager, key, exp_val string) {
 		val, ok := mgr.GetValue(key)
@@ -65,7 +65,7 @@ func TestContexts(t *testing.T) {
 
 func ExampleContextManager_SetValues() {
 	var (
-		mgr            = NewContextManager()
+		mgr            = NewContextManager(Option{})
 		request_id_key = GenSym()
 	)
 
@@ -88,7 +88,7 @@ func ExampleContextManager_SetValues() {
 
 func ExampleGo() {
 	var (
-		mgr            = NewContextManager()
+		mgr            = NewContextManager(Option{})
 		request_id_key = GenSym()
 	)
 
@@ -121,7 +121,7 @@ func ExampleGo() {
 }
 
 func BenchmarkGetValue(b *testing.B) {
-	mgr := NewContextManager()
+	mgr := NewContextManager(Option{})
 	wg := sync.WaitGroup{}
 	mgr.SetValues(Values{"test_key": "test_val"}, func() {
 		b.ResetTimer()
@@ -140,7 +140,7 @@ func BenchmarkGetValue(b *testing.B) {
 }
 
 func BenchmarkSetValues(b *testing.B) {
-	mgr := NewContextManager()
+	mgr := NewContextManager(Option{})
 	wg := sync.WaitGroup{}
 	for i := 0; i < b.N/2; i++ {
 		wg.Add(1)
@@ -160,7 +160,7 @@ func TestExtend(t *testing.T) {
 			t.Fatalf("expected length %d for values length %d, got no value", expected, len(values))
 		}
 	}
-	mgr := NewContextManager()
+	mgr := NewContextManager(Option{})
 	lenCheck(mgr.values, initialMaxGoroutineCount)
 	mgr.extend(0)
 	lenCheck(mgr.values, initialMaxGoroutineCount)
