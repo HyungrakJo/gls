@@ -1,14 +1,14 @@
 package gls
 
-var (
-	stackTagPool = &idPool{}
+import (
+	"golang.design/x/lockfree"
 )
 
-func initIdPool() {
-	stackTagPool.Pool.New = func() interface{} {
-		return stackTagPool.newID()
+var (
+	stackTagPool = &idPool{
+		queue: lockfree.NewQueue(),
 	}
-}
+)
 
 // Will return this goroutine's identifier if set. If you always need a
 // goroutine identifier, you should use EnsureGoroutineId which will make one

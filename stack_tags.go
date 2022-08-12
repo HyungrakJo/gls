@@ -40,8 +40,6 @@ func init() {
 	setEntries(github_com_jtolds_gls_markD, 0xd)
 	setEntries(github_com_jtolds_gls_markE, 0xe)
 	setEntries(github_com_jtolds_gls_markF, 0xf)
-
-	initIdPool()
 }
 
 func addStackTag(tag uint32, context_call func()) {
