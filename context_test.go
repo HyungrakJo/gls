@@ -2,7 +2,6 @@ package gls
 
 import (
 	"fmt"
-	"github.com/jtolds/gls"
 	"sync"
 	"testing"
 )
@@ -128,7 +127,7 @@ func BenchmarkGetValue(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			wg.Add(1)
-			gls.Go(func() {
+			Go(func() {
 				defer wg.Done()
 				val, ok := mgr.GetValue("test_key")
 				if !ok || val != "test_val" {

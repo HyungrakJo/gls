@@ -26,16 +26,29 @@ type Values map[interface{}]interface{}
 // construction.
 type ContextManager struct {
 	extendLock               sync.RWMutex
+	extendUnit               uint32
 	values                   []Values
 	currentMaxGoroutineCount int
+}
+
+type Option struct {
+	InitialMaxGoroutineCount int
+	ExtendUnit               int
 }
 
 // NewContextManager returns a brand new ContextManager. It also registers the
 // new ContextManager in the ContextManager registry which is used by the Go
 // method. ContextManagers are typically defined globally at package scope.
-func NewContextManager() *ContextManager {
-	mgr := &ContextManager{values: make([]Values, initialMaxGoroutineCount)}
+func NewContextManager(option Option) *ContextManager {
+	if option.InitialMaxGoroutineCount == 0 {
+		option.InitialMaxGoroutineCount = initialMaxGoroutineCount
+	}
+	if option.ExtendUnit == 0 {
+		option.ExtendUnit = extendUnit
+	}
+	mgr := &ContextManager{values: make([]Values, option.InitialMaxGoroutineCount)}
 	mgr.currentMaxGoroutineCount = len(mgr.values)
+	mgr.extendUnit = option.ExtendUnit
 	mgrRegistryMtx.Lock()
 	defer mgrRegistryMtx.Unlock()
 	mgrRegistry[mgr] = true
@@ -160,7 +173,7 @@ func (m *ContextManager) extend(gid uint32) {
 	m.extendLock.Lock()
 	defer m.extendLock.Unlock()
 	if gid >= uint32(m.currentMaxGoroutineCount) {
-		unit := ((gid-uint32(m.currentMaxGoroutineCount))/extendUnit + 1) * extendUnit
+		unit := ((gid-uint32(m.currentMaxGoroutineCount))/m.extendUnit + 1) * m.extendUnit
 		m.values = append(m.values, make([]Values, unit)...)
 		m.currentMaxGoroutineCount += int(unit)
 	}
